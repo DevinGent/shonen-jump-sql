@@ -94,7 +94,11 @@ def main():
     ]
     release_date='2025/08/03'
     #add_week(release_date,new_chapters)
-    connection.commit()
+    cursor.execute("""SELECT genre,
+                   AVG(total_chapters) as TOTAL
+                   FROM series
+                   GROUP BY genre""")
+    print(cursor.fetchall())
     connection.close()
 
 
