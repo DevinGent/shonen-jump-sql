@@ -12,7 +12,6 @@ class DataLoader:
 
     dictionary_of_title_errors={
         "Me and Roboco": 'Me & Roboco',
-        'WITCH WATCH': 'Witch Watch',
     }
 
 
@@ -27,7 +26,7 @@ class DataLoader:
         self.valid_dataframes=[]
         self.invalid_dataframes=[]
 
-    def _load_and_clean_df(self,url):
+    def _load_and_clean_df(self,url, day_offset):
         """Loads and cleans an individual week's chapters given a url.  Returns a pair with two dataframes, 
         one containing valid entries to add to the chapters table and one containing entries to be omitted."""
 
@@ -40,11 +39,10 @@ class DataLoader:
         # Otherwise convert the date obtained to date format.
         raw_date=datetime.datetime.strptime(raw_date.group(0), '%Y-%m-%d').date()
         # Adjust the date to land on the U.S. release window
-        corrected_date=raw_date-datetime.timedelta(days=15)
+        corrected_date=raw_date-datetime.timedelta(days=day_offset)
         # If the result is not a sunday, terminate.
         if corrected_date.weekday()!=6:
-            print(f"Once adjusted, the date given by {url} is not a Sunday. This week was omitted.")
-            return
+            print(f"Once adjusted, the date given by {url}: {corrected_date}, is not a Sunday.")
         # Return to string format
         else:
             corrected_date=datetime.datetime.strftime(corrected_date, '%Y-%m-%d')
@@ -98,10 +96,11 @@ class DataLoader:
         
 
 
-    def load_from_urls(self,url_stem: str,starting_url: str, stop_point: int=1):
+    def load_from_urls(self,url_stem: str,starting_url: str, stop_point: int=0, day_offset:int=15):
         """Loads data from the given url and previous weeks to the class instance's list of valid and invalid dataframes.
         The optional argument stop_point determines how many urls should be used.  If stop_point is an integer N, then
-        the starting urls and the N-1 which came before will be used."""
+        the starting urls and the N-1 which came before will be used. The optional argument day_offset determines
+        how to adjust the date provided by the url."""
 
         url_list=[starting_url]
         current_url=starting_url
@@ -111,13 +110,14 @@ class DataLoader:
             url_list.append(current_url)
         
         for url in url_list:
-            self._load_and_clean_df(url)
+            self._load_and_clean_df(url,day_offset)
         print("The final url used was:")
         print(url)
 
     def df_to_sql(self,dataframe):
         """Insert the selected dataframe (from either the valid or invalid lists of the class instance)
-        into the chapters table using the provided database connection of the class."""
+        into the chapters table using the provided database connection of the class.
+        The connection must still be committed after this function is called."""
 
         col_dict={
             'Manga Title': 'series',
@@ -129,6 +129,25 @@ class DataLoader:
 
         dataframe.drop(columns=['Chapter Title']).rename(columns=col_dict).to_sql(name='chapters', con=self.connection, if_exists='append')
 
+
+    def insert_or_ignore_df(self,dataframe):
+        """Insert the selected dataframe (from either the valid or invalid lists of the class instance)
+        into the chapters table using the provided database connection of the class.
+        The connection must still be committed after this function is called. Ignores inserting any row which already exists."""
+        col_dict={
+            'Manga Title': 'series',
+            'Date': 'release_date',
+            'Chapter Number': 'chapter',
+            'Type': 'type',
+            'Rank':'toc_rank'
+        }
+        dataframe.rename(columns=col_dict).reset_index().to_dict('records')
+        self._cursor.executemany("""INSERT OR IGNORE INTO chapters(placement,series,release_date,chapter,type,toc_rank)
+                                 VALUES (:placement,:series,:release_date,:chapter,:type,:toc_rank)
+                                 """,dataframe.rename(columns=col_dict).reset_index().to_dict('records'))
+
+
+    
     def insert_all_valid(self):
         """Inserts every dataframe in the list of valid series into the database."""
         for df in self.valid_dataframes:
@@ -138,7 +157,9 @@ class DataLoader:
         """"Returns a data containing the combined rows from all the dataframes in self.invalid_dataframes."""
         return pd.concat(self.invalid_dataframes)
     
-
+    def compile_all_valid(self):
+        """"Returns a data containing the combined rows from all the dataframes in self.valid_dataframes."""
+        return pd.concat(self.valid_dataframes)
 
 
 def add_week(date: str, data, recency=None):
@@ -204,7 +225,7 @@ def add_week(date: str, data, recency=None):
 def include_absent(db_connection,series_list: list=[]):
     """For each series listed, searches through the chapters table of the database and adds entries where the series was absent.
     The optional argument series_list should be a list of series titles which should be checked (all series will be checked by 
-    default)."""
+    default).  The connection must still be committed after this function is called."""
 
     cursor=db_connection.cursor()
     cursor.execute('SELECT title FROM series')
@@ -223,7 +244,7 @@ def include_absent(db_connection,series_list: list=[]):
         entries_to_add=[(date[0],series_name,'Absent') for date in cursor.fetchall()]
         cursor.executemany("""INSERT INTO chapters(release_date, series, type)
                            VALUES (?,?,?)""",entries_to_add)
-        db_connection.commit()
+        
 
 
     
