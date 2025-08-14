@@ -12,6 +12,7 @@ class DataLoader:
 
     dictionary_of_title_errors={
         "Me and Roboco": 'Me & Roboco',
+        'Witch Watch': 'WITCH WATCH'
     }
 
 
