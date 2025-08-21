@@ -65,7 +65,10 @@ class DataLoader:
         df.loc[df['Chapter Title'].str.lower().str.contains('one-shot'), 'Type'] = 'One-Shot'
         
         # Add a Rank column (where only series with normal chapters (and 8 chapters in or later) are included)
-        df['Rank']=df.index.map(df.loc[(df['Type'] == 'Normal')&(df['Chapter Number']>7)].index.to_series().rank())
+        # To protect against the case when the chapter number is excluded (final chapters will typically omit the number)
+        # We will also include TOC ranks for series which have normal chapters but no chapter number.
+        df['Rank']=df.index.map(df.loc[(df['Type'] == 'Normal')&
+                                       ((df['Chapter Number'] > 7)|((df['Chapter Number'].isna())))].index.to_series().rank())
         # Set the index (the raw order of the chapters in the magazine) to be labeled 'placement'
         df.index.name='placement'
         
@@ -243,11 +246,19 @@ def include_absent(db_connection,series_list: list=[]):
                        EXCEPT SELECT release_date FROM CHAPTERS WHERE
                        series=?""",(first_date,last_date,series_name))
         entries_to_add=[(date[0],series_name,'Absent') for date in cursor.fetchall()]
-        cursor.executemany("""INSERT INTO chapters(release_date, series, type)
+        cursor.executemany("""INSERT OR IGNORE INTO chapters(release_date, series, type)
                            VALUES (?,?,?)""",entries_to_add)
         
 
+def update_last_chapter(db_connection):
+    """This function searches through the chapters table of the database for null values.
+    It then sets the chapter to be one more than the series' previous chapter. 
+    The connection must still be committed after this function is called."""
 
+    cursor=db_connection.cursor()
+    cursor.execute("""UPDATE chapters SET""")
+    
+    pass
     
     
 
