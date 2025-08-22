@@ -256,9 +256,12 @@ def update_last_chapter(db_connection):
     The connection must still be committed after this function is called."""
 
     cursor=db_connection.cursor()
-    cursor.execute("""UPDATE chapters SET""")
+    cursor.execute("""UPDATE chapters SET
+                   chapter=1+(SELECT MAX(chapter) FROM chapters as c
+                   WHERE chapters.series=c.series
+                   GROUP BY series)
+                   WHERE chapter IS NULL AND type!='One-Shot';""")
     
-    pass
     
     
 
