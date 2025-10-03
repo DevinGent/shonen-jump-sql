@@ -4,8 +4,8 @@ SELECT chapters.series,
 MAX(chapters.chapter) AS max_chapter, 
 MIN(chapters.chapter) AS min_chapter,
 (1+MAX(chapters.chapter)-MIN(chapters.chapter)) AS expected_chapters,
-COUNT(chapters.chapter) AS recorded_chapters,
-c.recorded_chapters AS rec1,
+-- The following records how many chapters the series has in the chapters table (ignoring one-shots)
+COUNT(chapters.series)-COALESCE(o.one_shots,0) AS recorded_reg_chapters,
 o.one_shots
 FROM chapters  
 LEFT JOIN (SELECT series, COUNT(*) AS one_shots FROM chapters WHERE type='One-Shot'
@@ -26,4 +26,6 @@ WHERE d.dupes>1;
 
 -- Checking for chapters with no number given.
 SELECT * FROM chapters WHERE chapter IS NULL;
+
+SELECT * FROM chapters WHERE series='Super Psychic Policeman Chojo';
 
