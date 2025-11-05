@@ -168,7 +168,9 @@ class DataLoader:
 
 def add_week(date: str, data, recency=None):
 
-    """This function updates the Shonen Jump database (shonen_jump.sqlite3) by adding a week's worth of chapters to the 
+    """This function is a now deprecated attempt to add weeks to the SJ database.  The class DataLoader is now preferred.
+    
+    This function updates the Shonen Jump database (shonen_jump.sqlite3) by adding a week's worth of chapters to the 
     chapters table.  Date should be a string of the form YYYY-MM-DD. 
     
     By using the optional parameter "recency" chapter numbers can
@@ -263,7 +265,67 @@ def update_last_chapter(db_connection):
                    WHERE chapter IS NULL AND type!='One-Shot';""")
     
     
-    
+def update_batches(db_connection):
+    """This function updates the batches table of the database. The connection must still be committed after this function
+    is called."""    
+
+    cursor=db_connection.cursor()
+    # We will use the results of the batch_locator view.
+    df=pd.read_sql_query('SELECT * FROM batch_locator ORDER BY release_date',db_connection)
+
+    # Creating a dataframe to record all magazine release dates in order.
+    issues= pd.read_sql_query("SELECT DISTINCT release_date FROM chapters ORDER BY release_date", db_connection)
+    issues.reset_index(inplace=True)
+    issues.set_index('release_date', inplace=True)
+    issues.rename(columns={'index':'issue'},inplace=True)
+    # We only need the result as a series indexed by date.
+    issues = issues['issue']
+
+    # Grouping starting/ending series into batches by those within three issues of each other.
+    # Changing this variable changes the tolerance.
+    issue_tolerance=3
+    # We only need to work with the dates to create a column naming which batch each debut/finale fits into,
+    # so we name the series of dates.
+    chapters=df['release_date']
+    # This will keep track of which batch the date belongs to.
+    batch_index=0
+    # We will fill out a list that will become a new column of the dataframe.
+    batch_column=[0]
+    # For each add/completed series, we check if the last (previous) added/completed
+    # series was within three issues.  If not, we label it as part of a new batch.
+    for i in range(1,len(chapters)):
+        if issues.loc[chapters[i]]-issues.loc[chapters[i-1]]>issue_tolerance:
+            batch_index+=1
+        batch_column.append(batch_index)
+    # We set the resulting column as a part of our dataframe
+    df['batch']=batch_column
+
+    # Now we create a dataframe to export to the SQL database.
+    # output_df is indexed by batch and has two columns: Debut and Finale
+    output_df=df.groupby(['batch','debut_or_finale']).size().unstack(fill_value = 0)
+    # Next we add a column of start dates and a column of end dates to our output.
+    grouped=df.groupby('batch')
+    output_df['Start']=grouped['release_date'].min()
+    output_df['Stop']=grouped['release_date'].max()
+
+    # We relabel columns and insert the output_df into a temporary table.
+    col_dict={
+            'Start': 'start_date',
+            'Stop': 'end_date',
+            'Debut': 'added',
+            'Finale': 'completed'
+        }
+    output_df.rename(columns=col_dict).to_sql(name='temp_table', con=db_connection, if_exists='fail', index=False)
+
+    # We can now insert from the temporary table to the batches table.  This allows us to use INSERT OR IGNORE
+    # which pandas to_sql method does not support.
+    cursor.execute("""INSERT OR IGNORE INTO batches (start_date, end_date, added, completed)
+               SELECT start_date, end_date, added, completed
+               FROM temp_table;""")
+    # We may now drop the temporary table.  
+    cursor.execute("""DROP TABLE temp_table;""")
+    # After this function has been called the user must still commit the connection.
+
 
 
 def main():
