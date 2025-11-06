@@ -166,7 +166,7 @@ class DataLoader:
         return pd.concat(self.valid_dataframes)
 
 
-def add_week(date: str, data, recency=None):
+def _add_week(date: str, data, recency=None):
 
     """This function is a now deprecated attempt to add weeks to the SJ database.  The class DataLoader is now preferred.
     
@@ -228,28 +228,28 @@ def add_week(date: str, data, recency=None):
     connection.close()
 
 
-def include_absent(db_connection,series_list: list=[]):
-    """For each series listed, searches through the chapters table of the database and adds entries where the series was absent.
-    The optional argument series_list should be a list of series titles which should be checked (all series will be checked by 
-    default).  The connection must still be committed after this function is called."""
+def update_absences(db_connection):
+    """Searches through the chapters table of the database and adds entries where the series was absent to the absences table.
+    This will include longer hiatuses to the absences table which should be handled separately.
+    The connection must still be committed after this function is called."""
 
     cursor=db_connection.cursor()
-    cursor.execute('SELECT title FROM series')
-    all_series=[name[0] for name in cursor.fetchall()]
-    if len(series_list)==0:
-        series_list=all_series
-    for series_name in series_list:
-        cursor.execute("""SELECT MIN(release_date), MAX(release_date)
-                       FROM chapters WHERE series=?""",(series_name,))
-        [first_date,last_date]=cursor.fetchall()[0]
-        # Now we find the dates which should have an absent entry added for the series.
-        cursor.execute("""SELECT release_date FROM chapters WHERE
-                       release_date BETWEEN ? AND ?
-                       EXCEPT SELECT release_date FROM CHAPTERS WHERE
-                       series=?""",(first_date,last_date,series_name))
-        entries_to_add=[(date[0],series_name,'Absent') for date in cursor.fetchall()]
-        cursor.executemany("""INSERT OR IGNORE INTO chapters(release_date, series, type)
-                           VALUES (?,?,?)""",entries_to_add)
+    # We get a table with series as well as their earliest and latest (non-one-shot) chapters recorded in the database
+    df=pd.read_sql_query("""                     
+                    SELECT series, MIN(release_date) AS start, 
+                    MAX(release_date) AS stop FROM chapters 
+                    WHERE type!='One-Shot' GROUP BY series 
+                    """,con=db_connection)
+    # We convert this dataframe to a list of dictionaries of the form: 
+    # {'series': SERIES_NAME, 'start': START_DATE_STRING, 'stop': STOP_DATE_STRING}
+    series_info=df.to_dict(orient='records')
+    cursor.executemany("""
+    INSERT OR IGNORE INTO absences(series, issue_date)
+    SELECT DISTINCT :series AS series_title, release_date FROM chapters 
+    WHERE release_date BETWEEN :start AND :stop 
+    EXCEPT SELECT DISTINCT :series AS series_title, release_date FROM chapters
+    WHERE series= :series;""",series_info)
+
         
 
 def update_last_chapter(db_connection):
