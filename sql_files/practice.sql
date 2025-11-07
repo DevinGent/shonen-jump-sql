@@ -7,4 +7,6 @@ SELECT * FROM chapters WHERE release_date='2024-08-25';
 
 SELECT * FROM chapters WHERE release_date='2025-06-01';
 
+SELECT * FROM chapters ORDER BY release_date ASC;
+
 
