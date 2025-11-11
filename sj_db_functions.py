@@ -234,15 +234,24 @@ def update_absences(db_connection):
     The connection must still be committed after this function is called."""
 
     cursor=db_connection.cursor()
-    # We get a table with series as well as their earliest and latest (non-one-shot) chapters recorded in the database
+    # We first query the table to find the earliest and latest recorded chapters.
+    cursor.execute("""SELECT MIN(release_date), MAX(release_date) FROM chapters;""")
+    (earliest, latest)=cursor.fetchone()
+
+    # We get a table with series as well as their start and end dates.  If a series started before the earliest record in
+    # the database we proceed using the earliest known record.  If a series is not finished we use the most recent record.
     df=pd.read_sql_query("""                     
-                    SELECT series, MIN(release_date) AS start, 
-                    MAX(release_date) AS stop FROM chapters 
-                    WHERE type!='One-Shot' GROUP BY series 
-                    """,con=db_connection)
+                    SELECT chapters.series, 
+                    COALESCE(debuts.release_date,?) AS start, 
+                    COALESCE(finales.release_date,?) AS stop 
+                    FROM chapters LEFT JOIN debuts ON chapters.series=debuts.series
+                    LEFT JOIN finales ON chapters.series=finales.series
+                    GROUP BY chapters.series;
+                    """,params=(earliest,latest), con=db_connection)
     # We convert this dataframe to a list of dictionaries of the form: 
     # {'series': SERIES_NAME, 'start': START_DATE_STRING, 'stop': STOP_DATE_STRING}
     series_info=df.to_dict(orient='records')
+    # We now add to the absences table.
     cursor.executemany("""
     INSERT OR IGNORE INTO absences(series, issue_date)
     SELECT DISTINCT :series AS series_title, release_date FROM chapters 
@@ -265,9 +274,9 @@ def update_last_chapter(db_connection):
                    WHERE chapter IS NULL AND type!='One-Shot';""")
     
     
-def update_batches(db_connection):
-    """This function updates the batches table of the database. The connection must still be committed after this function
-    is called."""    
+def fill_batches(db_connection):
+    """This function updates the batches table of the database. The contents of the batches table are emptied and then replaced.
+    The connection must still be committed after this function is called."""    
 
     cursor=db_connection.cursor()
     # We will use the results of the batch_locator view.
@@ -308,22 +317,17 @@ def update_batches(db_connection):
     output_df['Start']=grouped['release_date'].min()
     output_df['Stop']=grouped['release_date'].max()
 
-    # We relabel columns and insert the output_df into a temporary table.
+    # We relabel columns 
     col_dict={
             'Start': 'start_date',
             'Stop': 'end_date',
             'Debut': 'added',
             'Finale': 'completed'
         }
-    output_df.rename(columns=col_dict).to_sql(name='temp_table', con=db_connection, if_exists='fail', index=False)
-
-    # We can now insert from the temporary table to the batches table.  This allows us to use INSERT OR IGNORE
-    # which pandas to_sql method does not support.
-    cursor.execute("""INSERT OR IGNORE INTO batches (start_date, end_date, added, completed)
-               SELECT start_date, end_date, added, completed
-               FROM temp_table;""")
-    # We may now drop the temporary table.  
-    cursor.execute("""DROP TABLE temp_table;""")
+    # We remove the contents of the previous batches table.
+    cursor.execute("""DELETE FROM batches""")
+    # and insert the output_df into the batches table.
+    output_df.rename(columns=col_dict).to_sql(name='batches', con=db_connection, if_exists='append', index=False)
     # After this function has been called the user must still commit the connection.
 
 
