@@ -246,6 +246,7 @@ def update_absences(db_connection):
                     COALESCE(finales.release_date,?) AS stop 
                     FROM chapters LEFT JOIN debuts ON chapters.series=debuts.series
                     LEFT JOIN finales ON chapters.series=finales.series
+                    WHERE chapters.type!= 'One-Shot'
                     GROUP BY chapters.series;
                     """,params=(earliest,latest), con=db_connection)
     # We convert this dataframe to a list of dictionaries of the form: 
@@ -258,6 +259,69 @@ def update_absences(db_connection):
     WHERE release_date BETWEEN :start AND :stop 
     EXCEPT SELECT DISTINCT :series AS series_title, release_date FROM chapters
     WHERE series= :series;""",series_info)
+
+def fill_hiatuses(db_connection):
+    """This function updates the hiatuses table of the database. The contents of the hiatuses table are emptied and then replaced.
+    The connection must still be committed after this function is called."""  
+
+    cursor=db_connection.cursor()
+
+    # As in fill_batches() we will prepare a pandas series of Shonen Jump issues indexed by release date.
+
+    # Creating a dataframe to record all magazine release dates in order.
+    issues= pd.read_sql_query("SELECT DISTINCT release_date FROM chapters ORDER BY release_date", db_connection)
+    issues.reset_index(inplace=True)
+    issues.set_index('release_date', inplace=True)
+    issues.rename(columns={'index':'issue'},inplace=True)
+    # We only need the result as a series indexed by date.
+    issues = issues['issue'] 
+
+    # Loading the absences to decide which are hiatuses.
+    df=pd.read_sql_query('SELECT * FROM absences',db_connection)
+    # We make sure the dataframe is sorted by series and then date.
+    df.sort_values(['series','issue_date'],inplace=True)
+
+    # We will create a column which tracks what group an absence belongs to.  
+    # We will say two absences belong to the same group if A. They are from the same series and
+    # B. They occur in consecutive issues.
+
+    # This will track the group number.
+    group_number=0
+    # We will fill out a list that will become a new column of the dataframe.
+    group_column=[0]
+
+    for i in range(1,len(df)):
+            if df['series'][i]!=df['series'][i-1] or issues.loc[df['issue_date'][i]]-issues.loc[df['issue_date'][i-1]]>1:
+                group_number+=1
+            group_column.append(group_number)
+    # We set the resulting column as a part of our dataframe
+    df['grouping']=group_column
+
+    # Now we add a column with the size of each group.
+    df['length']=df.groupby('grouping')['grouping'].transform('count')
+
+    # For our purposes we will consider a hiatus to be any absence of three consecutive issues or more.
+    # Now we restrict ourselves to absences belonging to hiatuses.
+    output_df=df[df['length']>2]
+
+    # We create a temporary table of absences belonging to hiatuses.
+    output_df.to_sql(name='temp_hiatuses', con=db_connection, if_exists='fail', index=False)
+    # Next we empty then fill the table of hiatuses anew.
+    cursor.execute("""DELETE FROM hiatuses;""")
+    cursor.execute("""INSERT OR IGNORE INTO hiatuses(series, start_date, end_date, length)
+                SELECT MAX(series), MIN(issue_date), MAX(issue_date), COUNT(grouping)
+                FROM temp_hiatuses
+                GROUP BY grouping;""")
+    db_connection.commit()
+    # Now we delete the corresponding absences from the absences table.
+    cursor.execute("""DELETE FROM absences WHERE EXISTS
+                (SELECT 1 FROM temp_hiatuses WHERE temp_hiatuses.series=absences.series
+                    AND temp_hiatuses.issue_date=absences.issue_date);""")
+    # Finally we delete the temporary table.
+    cursor.execute("""DROP TABLE temp_hiatuses;""")
+    # The connection must still be committed for the changes to take effect.
+    
+
 
         
 
