@@ -1,4 +1,5 @@
 -- Machine Learning Prep 2
 
-SELECT series, chapter, placement FROM chapters WHERE chapter<=12
-ORDER BY series, release_date;
+SELECT title, total_chapters, status FROM debuts
+LEFT JOIN series ON series.title=debuts.series
+ORDER BY total_chapters
