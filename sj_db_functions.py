@@ -395,6 +395,128 @@ def fill_batches(db_connection):
     # After this function has been called the user must still commit the connection.
 
 
+def load_modeling_data(db_connection,basis_size: int):
+    """Following the procedure in predicting_success.ipynb, this function generates a dataframe representing the
+    early performance of each series in the database of their first basis_size chapters. Target labels can be obtained
+    by passing the list of titles obtained here into the function success_or_failure."""
+
+    # First load general series information.
+    df=pd.read_sql_query("""
+    -- We want the name and genre of each series.                     
+    SELECT title,genre,  
+    -- Next we want an indicator column where 1 indicates that the series has one creator (who both writes and draws) and 
+    -- 0 if the series has a different artist and writer.  We call this column one_creator.
+    CASE
+    WHEN writer=artist THEN 1
+    ELSE 0 END one_creator,
+    -- We also want to track what the average placement of the series was, how many color pages it received, and
+    -- and how many cover pages it received over its first basis_size number of chapters. 
+    -- These columns will be obtained below.
+    average_placement,
+    color_pages,
+    cover_pages,
+    -- Finally we want the debut date and the size of the batch the series started in.
+    debuts.release_date,
+    batches.added AS batch_size
+
+    -- We now begin obtaining the above columns and selecting series where we know their early performance. 
+    FROM series
+    -- By inner joining with debuts we restrict ourselves to series where the database includes chapters starting from 1.
+    INNER JOIN debuts ON title=debuts.series
+    -- We join with a selection which averages the placement of each series over its first basis_size chapters
+    LEFT JOIN (SELECT AVG(placement) AS average_placement, series FROM chapters
+    WHERE chapter<=:basis_size GROUP BY series) AS avplace
+    ON title=avplace.series
+    -- We join again with a selection which counts the number of color pages over the series' first basis_size chapters.
+    LEFT JOIN (SELECT series,COUNT(series) AS color_pages FROM chapters
+    WHERE type='Color' AND chapter<=:basis_size
+    GROUP BY series) AS colorp
+    ON title=colorp.series
+    -- We join again with a selection which counts the number of cover pages over the series' first basis_size chapters.
+    LEFT JOIN (SELECT series,COUNT(series) AS cover_pages FROM chapters
+    WHERE type='Cover' AND chapter<=:basis_size
+    GROUP BY series) AS coverp
+    ON title=coverp.series
+    -- We also join with batches by associating to each series' debut the batch it lands within.
+    LEFT JOIN batches ON debuts.release_date BETWEEN batches.start_date AND batches.end_date
+    ORDER BY title;
+                """, con=db_connection, params={'basis_size':basis_size})
+    
+    # Next load the placement of individual chapters.
+    chapter_placement_df=pd.read_sql_query("""
+    SELECT series, chapter, placement FROM chapters WHERE chapter<=?
+    ORDER BY series, release_date""",con=db_connection,params=[basis_size])
+
+    # Pivot the dataframe of placements
+    chapter_placement_df=chapter_placement_df.pivot(index='series',columns='chapter',values='placement').add_prefix("place_chap_")
+
+    # Store the list of column titles.
+    chapter_placement_columns=chapter_placement_df.columns.to_list()
+
+    chapter_placement_df.dropna(axis='index',inplace=True)
+    # Merge the two dataframes
+    df=df.merge(chapter_placement_df,left_on='title',right_index=True)
+
+    # Ensure placements are treated as int values.
+    df[chapter_placement_columns]=df[chapter_placement_columns].astype(int)
+
+    # Convert the date to a datetime and extract the year and month
+    df['release_date']=pd.to_datetime(df['release_date'])
+    df['release_year']=df['release_date'].dt.year
+    df['release_month']=df['release_date'].dt.month
+
+    # Drop the original release_date column.
+    df.drop(columns=['release_date'],inplace=True)
+    
+    # Reset the index
+    df.reset_index(drop=True, inplace=True)
+
+    # Return the dataframe.
+    return df
+
+def average_placements(db_connection,basis_size: int):
+    """For each series in the magazine recorded in the database, this function calculates the average placement over
+    the first basis_size chapters and returns the result as a dataframe. Series missing chapters in the range 1-basis_size
+    are excluded."""
+
+    # Getting average placements for series which include all basis_size first chapters in the database.
+    df=pd.read_sql_query("""
+    SELECT series AS title, AVG(placement) AS average_placement
+    FROM chapters 
+    WHERE chapter<=:basis_size
+    GROUP BY series
+    HAVING COUNT(*)=:basis_size;""",con=db_connection, params={'basis_size':basis_size})
+
+    # And then we return the result.
+    return df
+
+
+
+
+
+def success_or_failure(db_connection, success_criteria: int, titles: list):
+    """Given a list of titles in Shonen Jump and a success criteria, this function determines (for each title)
+    success or failure and returns a dataframe with two columns, title and success, where 1 represents a success and 0 a failure.  
+    A title is considered a success if it runs for at least success_criteria chapters."""
+
+    # We make a list of parameters to pass to an sql query.
+    param_list=[success_criteria,success_criteria]+titles
+
+    # We create a query.
+    sql_query=f"""
+    SELECT
+    title,
+    CASE
+    WHEN total_chapters<? AND status='Complete' THEN 0
+    WHEN total_chapters>=? THEN 1
+    ELSE NULL
+    END success FROM series
+    WHERE title IN ({', '.join(['?' for title in titles])})"""
+
+    # We return the desired dataframe
+    return pd.read_sql_query(sql_query,params=param_list,con=db_connection)
+
+    
 
 def main():
     # Example usage.
