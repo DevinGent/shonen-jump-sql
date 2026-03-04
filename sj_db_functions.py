@@ -474,21 +474,36 @@ def load_modeling_data(db_connection,basis_size: int):
     # Return the dataframe.
     return df
 
-def average_placements(db_connection,basis_size: int):
+def average_placements(db_connection,basis_size: int, include_canceled=False):
     """For each series in the magazine recorded in the database, this function calculates the average placement over
     the first basis_size chapters and returns the result as a dataframe. Series missing chapters in the range 1-basis_size
     are excluded."""
 
-    # Getting average placements for series which include all basis_size first chapters in the database.
-    df=pd.read_sql_query("""
-    SELECT series AS title, AVG(placement) AS average_placement
-    FROM chapters 
-    WHERE chapter<=:basis_size
-    GROUP BY series
-    HAVING COUNT(*)=:basis_size;""",con=db_connection, params={'basis_size':basis_size})
+    if include_canceled==False:
+        # Getting average placements for series which include all basis_size first chapters in the database.
+        df=pd.read_sql_query("""
+        SELECT series AS title, AVG(placement) AS average_placement
+        FROM chapters 
+        WHERE chapter<=:basis_size
+        GROUP BY series
+        HAVING COUNT(*)=:basis_size;""",con=db_connection, params={'basis_size':basis_size})
+    else:
+        # If the optional argument include_canceled is set to True we will add the average placements of
+        # series which were canceled before reaching basis_size chapters.
+        df=pd.read_sql_query("""
+        SELECT av.title, av.average_placement
+        FROM (
+        SELECT series AS title, AVG(placement) AS average_placement, COUNT(*) AS nchaps FROM
+        chapters 
+        WHERE chapter<=:basis_size
+        GROUP BY series) as av
+        LEFT JOIN series on av.title=series.title
+        WHERE nchaps=:basis_size OR (nchaps=total_chapters AND status='Complete');""",
+        con=db_connection, params={'basis_size':basis_size})
 
     # And then we return the result.
     return df
+
 
 
 

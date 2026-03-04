@@ -12,33 +12,34 @@ Each file consists of a (model, dictionary) pair where the dictionary contains t
 ## Subfolders
 Certain groups of classifiers are sorted into appropriate subfolders for easy access and organization.  These are:
 
--`demos`: Contains classifiers created in the Jupyter notebook `predicting_success.ipynb` which walks through the steps of creating, comparing, and selecting classifiers.
--`simple`: Contains classifiers which only predict using the average placement of the first `Basis Size` chapters of a series (i.e. only univariate classifiers).
+- `demos`: Contains classifiers created in the Jupyter notebook `predicting_success.ipynb` which walks through the steps of creating, comparing, and selecting classifiers.
+- `simple`: Contains classifiers which only predict using the average placement of the first `Basis Size` chapters of a series (i.e. only univariate classifiers).
 
 ## Using Classifiers
 
-The notebook `model_testing.ipynb` walks through how to access and use one of the stored classifiers.  In order to make predictions on a selection of series the process is generally as follows.
+The notebook `model_testing.ipynb` walks through how to access and use one of the stored classifiers.  In order to make predictions on a selection of titles the process is generally as follows.
 
 1. Load the (model,dictionary) pair using `pickle.load`:
 ```
 with open('Demo_Classifier.pkl', 'rb') as f:
     loader = pickle.load(f) # Loader is a dictionary.
 ```
-2. Access the model itself by selecting the 0 index element.
+2. Access the model itself by using the key 'Model'.
 ```
-model=loader[0]
+model=loader['Model']
 ```
-3. Load chapter information by using an ad-hoc SQL query, composing a dataframe manually for the desired series, or by using one of the appropriate functions from `sj_db_functions.py`.  In the latter case a dataframe can be constructed by calling `fetch_prediction_data` (or `average_placement` for classifiers in the `simple` folder) and specifying the basis size. Such a dataframe will only contain series with at least basis size chapters.  If specific series are desired the resulting dataframe can be cut down as desired.  In the following `selected_series` is a list of user chosen series for prediction.
+3. Load chapter information by using an ad-hoc SQL query, composing a dataframe manually for the desired series, or by using one of the appropriate functions from `sj_db_functions.py`.  In the latter case a dataframe can be constructed by calling `load_modeling_data` (or `average_placements` for classifiers in the `simple` folder) and specifying the basis size. Such a dataframe will only contain series with at least basis size chapters.  If specific series are desired the resulting dataframe can be cut down as desired.  In the following `selected_series` is a list of user chosen series for prediction and `connection` is a SQL database connection.
 ```
-df=fetch_prediction_data(loader[1]['Basis Size'])
+df=load_modeling_data(connection,loader['Basis Size'])
 cut_down=df[df['title'].isin(selected_series)]
 ```
 4. Perform predictions using the selected data and model:
 ```
 predictions=model.predict(cut_down)
 ```
-5. The actual success or failure of each series can be quickly obtained by using the function `success_or_failure` function from `sj_db_functions.py` to judge the predictions.
+5. The actual success or failure of each series can be quickly obtained by using the function `success_or_failure` function from `sj_db_functions.py` to judge the predictions according to a desired success criteria.. 
 ```
-actual=success_or_failure(selected_series)
+success_criteria=loader['Success Criteria']
+actual=success_or_failure(connection,success_criteria,selected_series)
 ```
 
