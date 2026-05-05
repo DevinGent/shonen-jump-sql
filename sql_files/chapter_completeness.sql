@@ -27,5 +27,5 @@ WHERE d.dupes>1;
 -- Checking for chapters with no number given.
 SELECT * FROM chapters WHERE chapter IS NULL;
 
-SELECT * FROM chapters WHERE series='Super Psychic Policeman Chojo';
+SELECT * FROM chapters WHERE series='Hero Girl and Demon Lord Call It Quits';
 
