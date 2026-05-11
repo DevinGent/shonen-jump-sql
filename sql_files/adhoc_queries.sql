@@ -1,19 +1,41 @@
 -- This file is for adhoc database queries.
-WITH colpage(series, color_pages) AS 
-(SELECT series, COUNT(series) FROM chapters WHERE type='Color' AND chapter BETWEEN 8 AND 10 GROUP BY series)
 
-SELECT series, COUNT(series) FROM chapters WHERE type='Color' AND chapter BETWEEN 8 AND 10 GROUP BY series;
+SELECT series, release_date, id, debut_or_finale,
+CASE 
+WHEN id-LAG(id,1,0) OVER(ORDER BY id ASC)>3 THEN 1
+ELSE 0
+END AS new_batch
+FROM 
+(SELECT series, release_date, 'Debut' AS debut_or_finale FROM debuts 
+UNION SELECT series, release_date, 'Finale' AS debut_or_finale FROM finales)
+LEFT JOIN dates on date=release_date
+ORDER BY id ASC;
 
-SELECT * FROM chapters GROUP BY type;
+WITH batch_loc(series, release_date,date_id, debut_or_finale, new_batch) AS
+(SELECT series, release_date, id, debut_or_finale,
+CASE 
+WHEN id-LAG(id,1,0) OVER(ORDER BY id ASC)>2 THEN 1
+ELSE 0
+END AS new_batch
+FROM 
+(SELECT series, release_date, 'Debut' AS debut_or_finale FROM debuts 
+UNION SELECT series, release_date, 'Finale' AS debut_or_finale FROM finales)
+LEFT JOIN dates on date=release_date
+ORDER BY id ASC)
 
-SELECT debuts.*, status FROM
-debuts LEFT JOIN series ON debuts.series=series.title
-WHERE status='Ongoing' ORDER BY release_date;
+SELECT series, release_date, debut_or_finale, 
+SUM(new_batch) OVER(ORDER BY release_date)
+FROM batch_loc;
 
-SELECT * FROM debuts;
+SELECT series, release_date, id, debut_or_finale,
+CASE 
+WHEN id-LAG(id,1,0) OVER(ORDER BY id ASC)>3 THEN 1
+ELSE 0
+END AS new_batch
+FROM 
+(SELECT series, release_date, 'Debut' AS debut_or_finale FROM debuts 
+UNION SELECT series, release_date, 'Finale' AS debut_or_finale FROM finales)
+LEFT JOIN dates on date=release_date
+ORDER BY id ASC;
 
-SELECT * FROM chapters ORDER BY release_date DESC;
-
-SELECT * FROM debuts INNER JOIN finales ON debuts.series=finales.series;
-
-SELECT * FROM chapters ORDER BY series;
+SELECT * FROM dates;
