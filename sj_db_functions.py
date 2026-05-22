@@ -41,12 +41,12 @@ class DataLoader:
         raw_date=datetime.datetime.strptime(raw_date.group(0), '%Y-%m-%d').date()
         # Adjust the date to land on the U.S. release window
         corrected_date=raw_date-datetime.timedelta(days=day_offset)
-        # If the result is not a sunday, terminate.
+        # If the result is not a Sunday, give a warning.
         if corrected_date.weekday()!=6:
             print(f"Once adjusted, the date given by {url}: {corrected_date}, is not a Sunday.")
         # Return to string format
-        else:
-            corrected_date=datetime.datetime.strftime(corrected_date, '%Y-%m-%d')
+  
+        corrected_date=datetime.datetime.strftime(corrected_date, '%Y-%m-%d')
 
         # Load a table given a url
         df=pd.read_html(url,attrs = {'class': 'chapters'},index_col=0)[0]
@@ -60,9 +60,9 @@ class DataLoader:
         # Create a new column 'Type' with all entries set to 'Normal.
         df['Type']='Normal'
         # Go through and adjust the special chapter types.
-        df.loc[df['Chapter Title'].str.lower().str.contains('lead color'), 'Type'] = 'Cover'
-        df.loc[df['Chapter Title'].str.lower().str.startswith('color'), 'Type'] = 'Color'
-        df.loc[df['Chapter Title'].str.lower().str.contains('one-shot'), 'Type'] = 'One-Shot'
+        df.loc[df['Chapter Title'].str.lower().str.contains('lead color', na=False), 'Type'] = 'Cover'
+        df.loc[df['Chapter Title'].str.lower().str.startswith('color', na=False), 'Type'] = 'Color'
+        df.loc[df['Chapter Title'].str.lower().str.contains('one-shot', na=False), 'Type'] = 'One-Shot'
         
         # Add a Rank column (where only series with normal chapters (and 8 chapters in or later) are included)
         # To protect against the case when the chapter number is excluded (final chapters will typically omit the number)

@@ -1,41 +1,18 @@
 -- This file is for adhoc database queries.
 
-SELECT series, release_date, id, debut_or_finale,
-CASE 
-WHEN id-LAG(id,1,0) OVER(ORDER BY id ASC)>3 THEN 1
-ELSE 0
-END AS new_batch
-FROM 
-(SELECT series, release_date, 'Debut' AS debut_or_finale FROM debuts 
-UNION SELECT series, release_date, 'Finale' AS debut_or_finale FROM finales)
-LEFT JOIN dates on date=release_date
-ORDER BY id ASC;
+SELECT * FROM dates ORDER BY date DESC LIMIT 8;
 
-WITH batch_loc(series, release_date,date_id, debut_or_finale, new_batch) AS
-(SELECT series, release_date, id, debut_or_finale,
-CASE 
-WHEN id-LAG(id,1,0) OVER(ORDER BY id ASC)>2 THEN 1
-ELSE 0
-END AS new_batch
-FROM 
-(SELECT series, release_date, 'Debut' AS debut_or_finale FROM debuts 
-UNION SELECT series, release_date, 'Finale' AS debut_or_finale FROM finales)
-LEFT JOIN dates on date=release_date
-ORDER BY id ASC)
+SELECT series, AVG(toc_rank) AS average_toc FROM chapters GROUP BY series
+ORDER BY average_toc;
 
-SELECT series, release_date, debut_or_finale, 
-SUM(new_batch) OVER(ORDER BY release_date)
-FROM batch_loc;
+WITH latest_dates AS (
+SELECT date FROM dates ORDER BY date DESC LIMIT 8),
 
-SELECT series, release_date, id, debut_or_finale,
-CASE 
-WHEN id-LAG(id,1,0) OVER(ORDER BY id ASC)>3 THEN 1
-ELSE 0
-END AS new_batch
-FROM 
-(SELECT series, release_date, 'Debut' AS debut_or_finale FROM debuts 
-UNION SELECT series, release_date, 'Finale' AS debut_or_finale FROM finales)
-LEFT JOIN dates on date=release_date
-ORDER BY id ASC;
+eight_latest AS (
+SELECT series, toc_rank, date FROM 
+latest_dates LEFT JOIN chapters ON date=release_date)
 
-SELECT * FROM dates;
+SELECT series, AVG(toc_rank) AS average_toc FROM eight_latest GROUP BY series
+ORDER BY average_toc;
+
+SELECT * FROM chapters WHERE series="Me & Roboco" ORDER BY release_date;
